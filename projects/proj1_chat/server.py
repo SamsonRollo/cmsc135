@@ -2,14 +2,15 @@ import select
 import sys
 import socket
 import utils
+import threading
+import re
 
 RECV_BUFFER = 200
 SOCKET_LIST = [] #for nonblocking use
-NEW_CLIENTS = [] #for naming use
 
 class Server(object):
-    channels_clients = [[]] #[[channel_name, [socket]], [channel_name1, [socket]]]
-    clients = [[]] #[[name, socket, addr],[..,..,..]]
+    channels = []
+    clients = [] #[[channel, socket, addr]]
 
     def __init__(self, address, port):
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -19,29 +20,76 @@ class Server(object):
     def add_client(self, client_socket, client_addr):
         self.clients.append([None, client_socket, client_addr])
 
-    def update_client_name(self, client_name, client_socket):
-        for client in self.clients:
-            if client[1] == client_socket:
-                client[0] = client_name
-                return
-
     def add_channel(self, channel_name, client_socket):
-        for reg_channel in self.channels_clients:
-            if reg_channel[0] == channel_name:
+        for reg_channel in self.channels:
+            if reg_channel.get_channel_name() == channel_name:
                 raise Exception(utils.SERVER_CHANNEL_EXISTS)
-        self.channels_clients.append([channel_name, [client_socket]])
+        self.channels.append(Channel(channel_name, client_socket))
     
     def broadcast_to_channel(self, socket, msg):
-        channel_sockets = self.retrive_socket_channel(self, socket)
-        for socket in channel_sockets:
-            self.socket.send(msg)
-
+        try:
+            channel_users = self.retrive_socket_channel(socket)
+            for user in channel_users:
+                if user == socket:
+                    continue
+                self.socket.send(msg)
+        except Exception as e:
+            socket.send(str(e))
+ 
     def retrive_socket_channel(self, socket): #return sockets in a channel of current socket
-        for channel in self.channels_clients:
-            for cur_socket in channel[1]:
-                if cur_socket == socket:
-                    return channel[1]
-        return []
+        for client in self.clients:
+            if client and client[1] == socket:
+                if client[0] == None:
+                    raise Exception(utils.SERVER_CLIENT_NOT_IN_CHANNEL)
+                else:
+                    return client[0].get_users()
+    
+    def process_input_data(self, data):
+        data1 = self.trim_name(data)
+        if re.search("^/", data1):
+            return True, data1
+        return False, data
+
+    def process_command(self, client, data):
+        command = (re.search("^/\w* ", data)).casefold()
+        print("command is "+command)
+
+        if command == "/list":
+            client.send("\n".join(self.get_channel_list()))
+        elif command == "/create":
+            1
+        elif command == "/join":
+            1
+        else:
+            raise Exception(utils.SERVER_INVALID_CONTROL_MESSAGE.format())
+
+    def trim_name(self, data):
+        return (re.sub("^\[\w*\]","",data,1)).strip()
+
+    def get_channel_list(self):
+        channel_list = []
+        for channel in self.channels:
+            channel_list.append(channel.get_channel_name())
+        return channel_list
+    
+class Channel(object):
+    users = []
+
+    def __init__(self, name, user):
+        self.name = name
+        self.users.append(user)
+    
+    def add_user(self, user):
+        self.users.append(user)
+
+    def remove_user(self, user):
+        self.users.remove(user)
+    
+    def get_channel_name(self):
+        return self.name
+    
+    def get_users(self):
+        return self.users
 
 args = sys.argv
 if len(args) != 3:
@@ -60,15 +108,23 @@ while 1:
         if sock == server.socket: 
             client, addr = server.socket.accept()
             SOCKET_LIST.append(client)
-            NEW_CLIENTS.append(client)
             server.add_client(client, addr)
-        #make a way to retrieve name before messages
+
         else:
             try:
-                msg = sock.recv(RECV_BUFFER)
-                print(msg)
-            except:
-                print("errorororor")
+                data = sock.recv(RECV_BUFFER) # do as if recieving beyond 200 bytes consider name is included, buffer the msg. i.e. name+msg
+                #trim header and recieve all data before continue
+                print(data)
+                #check message is command or data; assuming header is removed
+                iscommand, proc_data = server.process_input_data(data)
+                if iscommand:
+                    server.process_command(sock, proc_data)
+                else:
+                    server.broadcast_to_channel(sock, proc_data)
+            except Exception as e:
+                SOCKET_LIST.remove(sock)
+                print(e)
+                sock.close()
 
 server.close()
     

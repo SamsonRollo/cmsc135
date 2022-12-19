@@ -4,6 +4,7 @@ import socket
 import sys
 
 RECV_BUFFER = 200
+RECV_HEADER_LEN = 10
 
 class BasicClient(object):
     name = ""
@@ -37,21 +38,16 @@ except:
     print(utils.CLIENT_CANNOT_CONNECT.format(client.address, client.port))
     sys.exit()
 
+
 while 1:
     #change the recieving and senfing of message
-    print(client.socket)
-    socket_list = [client.socket]
-    ready_to_read,ready_to_write,in_error = select.select(socket_list , [], [])
+    msg = raw_input(utils.CLIENT_MESSAGE_PREFIX)
+    if msg == "exit":
+        break
+    try:
+        client.send( client.client_name()+" "+msg)
+    except Exception as e:
+        print(e)
 
-    for sock in ready_to_read:
-        if sock == client.socket:
-            msg = sock.recv(RECV_BUFFER)
-            print(msg)
-        else:
-            msg = raw_input(utils.CLIENT_MESSAGE_PREFIX)
-            if msg == "exit":
-                break
-            try:
-                client.send( client.client_name()+" "+msg)
-            except Exception as e:
-                print(e)   
+    msg = client.socket.recv(RECV_BUFFER)
+    print(msg)   
