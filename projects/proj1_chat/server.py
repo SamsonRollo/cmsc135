@@ -22,23 +22,55 @@ class Server(object):
 
     def add_channel(self, channel_name, client_socket):
         for reg_channel in self.channels:
+
             if reg_channel.get_channel_name() == channel_name:
                 raise Exception(utils.SERVER_CHANNEL_EXISTS)
-        self.channels.append(Channel(channel_name, client_socket))
+                
+        new_channel = Channel(channel_name, client_socket)
+        self.channels.append(new_channel)
+        self.update_client_channel(client_socket, new_channel)
+
+    def join_channel_aux(self, channel_name, client_socket):
+        for reg_channel in self.channels:
+
+            if reg_channel.get_channel_name() == channel_name:
+                self.update_client_channel(client_socket, channel_name)
+                return
+
+        raise Exception(utils.SERVER_NO_CHANNEL_EXISTS.format(channel_name, channel_name))
     
-    def broadcast_to_channel(self, socket, msg):
+    def update_client_channel(self, client, new_channel):
+        for client in self.clients:
+
+            if client[1] == client:
+                old_channel = client[0]
+                client[0] = new_channel
+                new_channel.add_user(client)
+                self.broadcast_to_channel(client, utils.SERVER_CLIENT_JOINED_CHANNEL, new_channel)
+
+                if not old_channel:
+                    old_channel.remove_user(client)
+                    self.broadcast_to_channel(client, utils.SERVER_CLIENT_LEFT_CHANNEL, old_channel)
+
+    def broadcast_to_channel(self, socket, msg, channel):
         try:
-            channel_users = self.retrive_socket_channel(socket)
+            if channel:
+                channel_users = channel.get_users()
+            else:               
+                channel_users = self.retrive_socket_channel(socket)
+
             for user in channel_users:
                 if user == socket:
                     continue
-                self.socket.send(msg)
+                self.send_to_client(user, msg)
+
         except Exception as e:
             socket.send(str(e))
  
     def retrive_socket_channel(self, socket): #return sockets in a channel of current socket
         for client in self.clients:
             if client and client[1] == socket:
+
                 if client[0] == None:
                     raise Exception(utils.SERVER_CLIENT_NOT_IN_CHANNEL)
                 else:
@@ -51,17 +83,59 @@ class Server(object):
         return False, data
 
     def process_command(self, client, data):
-        command = (re.search("^/\w* ", data)).casefold()
-        print("command is "+command)
+        command = re.findall("^/\w* ", data+" ")
 
-        if command == "/list":
-            client.send("\n".join(self.get_channel_list()))
-        elif command == "/create":
-            1
-        elif command == "/join":
-            1
+        if command:
+            command = (command[0].lower()).strip()
+        try:
+            if command == "/list":
+                print("list")
+                self.send_channel_list(client)
+
+            elif command == "/create":
+                print("create")
+                self.create_channel(client, data)
+
+            elif command == "/join":
+                print("join")
+                self.join_channel(client, data)
+
+            else:
+                self.invalid_command(command)
+        
+        except Exception as e:
+            self.send_to_client(client, str(e))
+
+    def invalid_command(self, command):
+        raise Exception(utils.SERVER_INVALID_CONTROL_MESSAGE.format(command))
+
+    def create_channel(self, client, data):
+        channel_name = data.split()
+
+        if len(channel_name)>1:
+            try:
+                self.add_channel(channel_name[1], client)
+            except Exception as e:
+                raise Exception(str(e))
         else:
-            raise Exception(utils.SERVER_INVALID_CONTROL_MESSAGE.format())
+            raise Exception(utils.SERVER_CREATE_REQUIRES_ARGUMENT)
+
+    def join_channel(self, client, data):
+        channel_name = data.split()
+
+        if len(channel_name)>1:
+            try:
+                self.join_channel_aux(channel_name[1], client)
+            except Exception as e:
+                raise Exception(str(e))
+        else:
+            raise Exception(utils.SERVER_JOIN_REQUIRES_ARGUMENT)
+
+    def send_to_client(self, client, data):
+        client.send(data)
+
+    def send_channel_list(self, client):
+        self.send_to_client(client, "\n".join(self.get_channel_list()))
 
     def trim_name(self, data):
         return (re.sub("^\[\w*\]","",data,1)).strip()
@@ -119,8 +193,9 @@ while 1:
                 iscommand, proc_data = server.process_input_data(data)
                 if iscommand:
                     server.process_command(sock, proc_data)
+                    print("done")
                 else:
-                    server.broadcast_to_channel(sock, proc_data)
+                    server.broadcast_to_channel(sock, proc_data, None)
             except Exception as e:
                 SOCKET_LIST.remove(sock)
                 print(e)
