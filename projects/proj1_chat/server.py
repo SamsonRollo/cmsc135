@@ -6,6 +6,7 @@ import threading
 import re
 
 RECV_BUFFER = 200
+RECV_HEADER_LEN = 10
 SOCKET_LIST = [] #for nonblocking use
 
 class Server(object):
@@ -36,6 +37,7 @@ class Server(object):
             if reg_channel.get_channel_name() == channel_name:
                 self.update_client_channel(client_socket, reg_channel)
                 return
+        print("not fond if")
 
         raise Exception(utils.SERVER_NO_CHANNEL_EXISTS.format(channel_name, channel_name))
     
@@ -51,6 +53,7 @@ class Server(object):
                 if old_channel != None:
                     old_channel.remove_user(client)
                     self.broadcast_to_channel(client, utils.SERVER_CLIENT_LEFT_CHANNEL, old_channel)
+                break
 
     def broadcast_to_channel(self, socket, msg, channel):
         try:
@@ -65,7 +68,7 @@ class Server(object):
                 self.send_to_client(user, msg)
 
         except Exception as e:
-            socket.send(str(e))
+            self.handle_server_response(socket, e)
  
     def retrive_socket_channel(self, socket): #return sockets in a channel of current socket
         for client in self.clients:
@@ -89,7 +92,6 @@ class Server(object):
             command = (command[0].lower()).strip()
         try:
             if command == "/list":
-                print("list")
                 self.send_channel_list(client)
 
             elif command == "/create":
@@ -104,7 +106,7 @@ class Server(object):
                 self.invalid_command(command)
         
         except Exception as e:
-            self.send_to_client(client, str(e))
+            self.handle_server_response(client, e)
 
     def invalid_command(self, command):
         raise Exception(utils.SERVER_INVALID_CONTROL_MESSAGE.format(command))
@@ -131,11 +133,16 @@ class Server(object):
         else:
             raise Exception(utils.SERVER_JOIN_REQUIRES_ARGUMENT)
 
-    def send_to_client(self, client, data):
-        client.send(data)
+    def send_to_client(self, client, data, from_server=False):
+        new_data = str(len(data))+" "+str(int(from_server))
+        new_data = new_data.ljust(RECV_HEADER_LEN) + data
+        client.send(new_data)
 
     def send_channel_list(self, client):
         self.send_to_client(client, "\n".join(self.get_channel_list()))
+    
+    def handle_server_response(self, client, data):
+        self.send_to_client(client, str(data), True)
 
     def trim_name(self, data):
         return (re.sub("^\[\w*\]","",data,1)).strip()
@@ -154,7 +161,8 @@ class Channel(object):
         self.users.append(user)
     
     def add_user(self, user):
-        self.users.append(user)
+        if not user in self.users:
+            self.users.append(user)
 
     def remove_user(self, user):
         self.users.remove(user)
@@ -188,7 +196,6 @@ while 1:
             try:
                 data = sock.recv(RECV_BUFFER) # do as if recieving beyond 200 bytes consider name is included, buffer the msg. i.e. name+msg
                 #trim header and recieve all data before continue
-                print(data)
                 #check message is command or data; assuming header is removed
                 iscommand, proc_data = server.process_input_data(data)
                 if iscommand:

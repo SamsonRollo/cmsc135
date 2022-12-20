@@ -1,8 +1,7 @@
-import threading
+import select
 import utils
 import socket
 import sys
-import time #remove later
 
 RECV_BUFFER = 200
 RECV_HEADER_LEN = 10
@@ -23,22 +22,38 @@ class BasicClient(object):
         self.socket.send(message)
 
     def receive(self):
+        full_data = ""
+        new_data = True
+        server_response = False
+
         while 1:
             incoming_data = client.socket.recv(RECV_BUFFER)
+
             if not incoming_data:
                 print(utils.CLIENT_SERVER_DISCONNECTED.format(1,1)) #specify server details
                 sys.exit()
-            else:
-                #tell if from server or from other clients
-                sys.stdout.write(incoming_data)
+
+            if new_data:
+                header = incoming_data[:RECV_HEADER_LEN].split()
+                data_len = int(header[0])
+                server_response = header[1] == "1"
+                new_data = False
+            full_data += incoming_data
+
+            if len(full_data)-RECV_HEADER_LEN == data_len:
+                if not server_response:
+                    sys.stdout.write(utils.CLIENT_WIPE_ME+"\r")
+                sys.stdout.write(full_data[RECV_HEADER_LEN:]); sys.stdout.flush()
+                if server_response:
+                    sys.stdout.write("\n")
                 sys.stdout.write(utils.CLIENT_MESSAGE_PREFIX); sys.stdout.flush() 
+                break
             
     def client_name(self):
         return "["+self.name+"]"
 
 args = sys.argv
 if len(args) != 4:
-    print(args)
     print("Please supply a server address and port.")
     sys.exit()
 
@@ -51,13 +66,20 @@ except:
     sys.exit()
 
 sys.stdout.write(utils.CLIENT_MESSAGE_PREFIX); sys.stdout.flush()
-receive_thread = threading.Thread(target=client.receive)
-receive_thread.start()
 
-while 1: # thread for writing
-    client_input_data = sys.stdin.readline()
-    try:
-        client.send(client.client_name()+" "+client_input_data)
-    except Exception as e:
-        sys.stdout.write(str(e))
-    sys.stdout.write(utils.CLIENT_MESSAGE_PREFIX); sys.stdout.flush()
+while 1: 
+    socket_list = [sys.stdin, client.socket]
+
+    ready_to_read,ready_to_write,in_error = select.select(socket_list , [], [])
+         
+    for sock in ready_to_read:             
+        if sock == client.socket:
+            client.receive()
+        else:
+            client_input_data = sys.stdin.readline()
+            try:
+                client.send(client.client_name()+" "+client_input_data)
+            except Exception as e:
+                print(e)
+                sys.stdout.write(str(e))
+            sys.stdout.write(utils.CLIENT_MESSAGE_PREFIX); sys.stdout.flush()
