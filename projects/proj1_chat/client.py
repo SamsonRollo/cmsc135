@@ -1,7 +1,8 @@
-import select
+import threading
 import utils
 import socket
 import sys
+import time #remove later
 
 RECV_BUFFER = 200
 RECV_HEADER_LEN = 10
@@ -20,7 +21,18 @@ class BasicClient(object):
         
     def send(self, message):
         self.socket.send(message)
-    
+
+    def receive(self):
+        while 1:
+            incoming_data = client.socket.recv(RECV_BUFFER)
+            if not incoming_data:
+                print(utils.CLIENT_SERVER_DISCONNECTED.format(1,1)) #specify server details
+                sys.exit()
+            else:
+                #tell if from server or from other clients
+                sys.stdout.write(incoming_data)
+                sys.stdout.write(utils.CLIENT_MESSAGE_PREFIX); sys.stdout.flush() 
+            
     def client_name(self):
         return "["+self.name+"]"
 
@@ -38,16 +50,14 @@ except:
     print(utils.CLIENT_CANNOT_CONNECT.format(client.address, client.port))
     sys.exit()
 
+sys.stdout.write(utils.CLIENT_MESSAGE_PREFIX); sys.stdout.flush()
+receive_thread = threading.Thread(target=client.receive)
+receive_thread.start()
 
-while 1:
-    #change the recieving and senfing of message
-    msg = raw_input(utils.CLIENT_MESSAGE_PREFIX)
-    if msg == "exit":
-        break
+while 1: # thread for writing
+    client_input_data = sys.stdin.readline()
     try:
-        client.send( client.client_name()+" "+msg)
+        client.send(client.client_name()+" "+client_input_data)
     except Exception as e:
-        print(e)
-
-    msg = client.socket.recv(RECV_BUFFER)
-    print(msg)   
+        sys.stdout.write(str(e))
+    sys.stdout.write(utils.CLIENT_MESSAGE_PREFIX); sys.stdout.flush()

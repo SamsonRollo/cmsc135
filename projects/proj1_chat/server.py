@@ -17,8 +17,8 @@ class Server(object):
         self.socket.bind((address, int(port)))
         self.socket.listen(5)
     
-    def add_client(self, client_socket, client_addr):
-        self.clients.append([None, client_socket, client_addr])
+    def add_client(self, client_socket, client_addr, channel=None):
+        self.clients.append([channel, client_socket, client_addr])
 
     def add_channel(self, channel_name, client_socket):
         for reg_channel in self.channels:
@@ -34,21 +34,21 @@ class Server(object):
         for reg_channel in self.channels:
 
             if reg_channel.get_channel_name() == channel_name:
-                self.update_client_channel(client_socket, channel_name)
+                self.update_client_channel(client_socket, reg_channel)
                 return
 
         raise Exception(utils.SERVER_NO_CHANNEL_EXISTS.format(channel_name, channel_name))
     
     def update_client_channel(self, client, new_channel):
-        for client in self.clients:
+        for cur_client in self.clients:
 
-            if client[1] == client:
-                old_channel = client[0]
-                client[0] = new_channel
+            if cur_client[1] == client:
+                old_channel = cur_client[0]
+                cur_client[0] = new_channel
                 new_channel.add_user(client)
                 self.broadcast_to_channel(client, utils.SERVER_CLIENT_JOINED_CHANNEL, new_channel)
 
-                if not old_channel:
+                if old_channel != None:
                     old_channel.remove_user(client)
                     self.broadcast_to_channel(client, utils.SERVER_CLIENT_LEFT_CHANNEL, old_channel)
 
@@ -197,6 +197,7 @@ while 1:
                 else:
                     server.broadcast_to_channel(sock, proc_data, None)
             except Exception as e:
+                #check this if valid
                 SOCKET_LIST.remove(sock)
                 print(e)
                 sock.close()
