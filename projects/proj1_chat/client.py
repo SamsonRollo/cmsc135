@@ -4,7 +4,7 @@ import socket
 import sys
 
 RECV_BUFFER = 200
-RECV_HEADER_LEN = 10
+RECV_HEADER_LEN = 11
 
 class BasicClient(object):
     name = ""
@@ -24,33 +24,32 @@ class BasicClient(object):
     def receive(self):
         full_data = ""
         new_data = True
-        server_response = False
+        update = False
 
         while 1:
             incoming_data = client.socket.recv(RECV_BUFFER)
 
             if not incoming_data:
-                print(utils.CLIENT_SERVER_DISCONNECTED.format(1,1)) #specify server details
+                print(utils.CLIENT_SERVER_DISCONNECTED.format(self.socket.address, self.socket.port))
                 sys.exit()
 
             if new_data:
                 header = incoming_data[:RECV_HEADER_LEN].split()
                 data_len = int(header[0])
-                server_response = header[1] == "1"
+                update = header[1] == "1"
                 new_data = False
             full_data += incoming_data
 
             if len(full_data)-RECV_HEADER_LEN == data_len:
-                if not server_response:
-                    sys.stdout.write(utils.CLIENT_WIPE_ME+"\r")
+                sys.stdout.write(utils.CLIENT_WIPE_ME+"\r")
                 sys.stdout.write(full_data[RECV_HEADER_LEN:]); sys.stdout.flush()
-                if server_response:
+                if update:
                     sys.stdout.write("\n")
                 sys.stdout.write(utils.CLIENT_MESSAGE_PREFIX); sys.stdout.flush() 
                 break
             
     def client_name(self):
-        return "["+self.name+"]"
+        return self.name
 
 args = sys.argv
 if len(args) != 4:
@@ -65,6 +64,7 @@ except:
     print(utils.CLIENT_CANNOT_CONNECT.format(client.address, client.port))
     sys.exit()
 
+client.send(client.client_name())
 sys.stdout.write(utils.CLIENT_MESSAGE_PREFIX); sys.stdout.flush()
 
 while 1: 
@@ -78,7 +78,7 @@ while 1:
         else:
             client_input_data = sys.stdin.readline()
             try:
-                client.send(client.client_name()+" "+client_input_data)
+                client.send(client_input_data)
             except Exception as e:
                 print(e)
                 sys.stdout.write(str(e))
